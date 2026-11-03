@@ -5,9 +5,11 @@
 int ns_test_failures;
 
 void suite_ring(void);
+void suite_frame(void);
 
 static const struct { const char *name; void (*fn)(void); } SUITES[] = {
     { "ring", suite_ring },
+    { "frame", suite_frame },
 };
 #define N_SUITES (sizeof(SUITES) / sizeof(SUITES[0]))
 

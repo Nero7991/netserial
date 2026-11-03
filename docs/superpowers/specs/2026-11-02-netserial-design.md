@@ -49,7 +49,7 @@ design keeps:
 ```
 
 ## Wire format (UDP)
-Datagram <= 1400 bytes:
+Datagram <= 1400 bytes (18-byte header; corrected 2026-11-02 from an earlier "16", the fields below sum to 18):
 `magic "NS" | ver u8 | type u8 | boot_id u32 | seq u32 (byte offset of payload) | dev_ms u32 | len u16 | payload`
 - `seq` is a byte offset in the device's output stream since boot, so the host can splice, dedupe
   retransmits and measure gaps exactly.
