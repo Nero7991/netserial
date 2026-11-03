@@ -5,3 +5,4 @@ examples/*/sdkconfig
 examples/*/sdkconfig.old
 __pycache__/
 .superpowers/
+.venv/
