@@ -19,5 +19,7 @@ typedef struct {
     uint16_t len;
 } ns_hdr_t;
 
+// Write just the 18-byte header (for a payload the caller already placed at out + NS_FRAME_HDR).
+void ns_frame_put_hdr(const ns_hdr_t *h, uint8_t *out);
 uint32_t ns_frame_encode(const ns_hdr_t *h, const uint8_t *payload, uint8_t *out, uint32_t cap);
 bool ns_frame_decode(const uint8_t *in, uint32_t n, ns_hdr_t *h, const uint8_t **payload);

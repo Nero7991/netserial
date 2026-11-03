@@ -6,10 +6,12 @@ int ns_test_failures;
 
 void suite_ring(void);
 void suite_frame(void);
+void suite_tx(void);
 
 static const struct { const char *name; void (*fn)(void); } SUITES[] = {
     { "ring", suite_ring },
     { "frame", suite_frame },
+    { "tx", suite_tx },
 };
 #define N_SUITES (sizeof(SUITES) / sizeof(SUITES[0]))
 

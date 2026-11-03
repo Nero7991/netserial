@@ -11,10 +11,8 @@ static uint32_t get32(const uint8_t *p)
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
-uint32_t ns_frame_encode(const ns_hdr_t *h, const uint8_t *payload, uint8_t *out, uint32_t cap)
+void ns_frame_put_hdr(const ns_hdr_t *h, uint8_t *out)
 {
-    uint32_t total = NS_FRAME_HDR + (uint32_t)h->len;
-    if (total > NS_FRAME_MAX || total > cap) return 0;
     out[0] = 'N';
     out[1] = 'S';
     out[2] = NS_FRAME_VER;
@@ -24,6 +22,13 @@ uint32_t ns_frame_encode(const ns_hdr_t *h, const uint8_t *payload, uint8_t *out
     put32(out + 12, h->dev_ms);
     out[16] = (uint8_t)h->len;
     out[17] = (uint8_t)(h->len >> 8);
+}
+
+uint32_t ns_frame_encode(const ns_hdr_t *h, const uint8_t *payload, uint8_t *out, uint32_t cap)
+{
+    uint32_t total = NS_FRAME_HDR + (uint32_t)h->len;
+    if (total > NS_FRAME_MAX || total > cap) return 0;
+    ns_frame_put_hdr(h, out);
     if (h->len) memcpy(out + NS_FRAME_HDR, payload, h->len);
     return total;
 }
