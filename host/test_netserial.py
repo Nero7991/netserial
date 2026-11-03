@@ -91,3 +91,12 @@ def test_bad_frame_ignored():
     rx, lines, events = make()
     assert rx.feed(b"garbage") == []
     assert lines == [] and events == []
+
+
+def test_listen_binds_given_port():
+    probe = ns.make_socket(0)
+    port = probe.getsockname()[1]
+    probe.close()
+    s = ns.make_socket(port)
+    assert s.getsockname()[1] == port
+    s.close()

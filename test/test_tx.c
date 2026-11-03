@@ -139,3 +139,42 @@ void suite_tx(void)
     tx_splits_at_frame_max();
     tx_ack_out_of_range_ignored();
 }
+
+static void tx_resend_gives_up_without_host(void)
+{
+    setup(true);
+    ns_ring_write(&s_r, "abc", 3);
+    ns_tx_sent(&s_t, ns_tx_next(&s_t, 0, s_out, sizeof s_out), true);
+    uint32_t now = 0;
+    int resends = 0;
+    for (int i = 0; i < 20; i++) {
+        now += 2001;
+        uint32_t n = ns_tx_next(&s_t, now, s_out, sizeof s_out);
+        if (n) { resends++; ns_tx_sent(&s_t, n, true); }
+    }
+    CHECK_EQ(resends, NS_TX_MAX_RESENDS);
+    ns_tx_rewind(&s_t, now);                   // a HELLO: start again from the tail
+    ns_hdr_t h = decode(ns_tx_next(&s_t, now, s_out, sizeof s_out));
+    CHECK_EQ(h.seq, 0);
+    CHECK_EQ(h.len, 3);
+}
+
+static void tx_dropped_resent_on_resend_cycle(void)
+{
+    setup(true);
+    static uint8_t big[300];
+    ns_ring_write(&s_r, "abc", 3);
+    ns_ring_write(&s_r, big, sizeof big);      // dropped 300
+    uint32_t n = ns_tx_next(&s_t, 0, s_out, sizeof s_out);
+    CHECK_EQ(decode(n).type, NS_DROPPED);
+    ns_tx_sent(&s_t, n, true);                 // "sent", but suppose the datagram was lost
+    ns_tx_sent(&s_t, ns_tx_next(&s_t, 0, s_out, sizeof s_out), true);   // DATA abc
+    n = ns_tx_next(&s_t, 2001, s_out, sizeof s_out);                     // no ACK: resend cycle
+    CHECK_EQ(decode(n).type, NS_DROPPED);
+}
+
+void suite_tx_fixes(void)
+{
+    tx_resend_gives_up_without_host();
+    tx_dropped_resent_on_resend_cycle();
+}

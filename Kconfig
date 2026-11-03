@@ -4,6 +4,7 @@ menu "netserial"
         default 8192
         range 1024 65536
         help
+            Must be a power of two (1024, 2048, ... 65536); the build fails otherwise.
             Output held until the host acknowledges it. When full, new output is dropped and
             counted; the oldest (for example the boot log) is kept.
     config NETSERIAL_FLUSH_MS

@@ -1,3 +1,4 @@
+#include "ns_line.h"
 #include "ns_ring.h"
 #include "ns_test.h"
 #include <string.h>
@@ -91,4 +92,44 @@ void suite_ring(void)
     ring_wraps_index();
     ring_offsets_wrap();
     ring_ack_out_of_range_noop();
+}
+
+static void ring_init_rejects_non_pow2(void)
+{
+    uint8_t buf[12];
+    ns_ring_t r;
+    CHECK(!ns_ring_init(&r, buf, 12));
+    CHECK(ns_ring_init(&r, buf, 8));
+}
+
+static void ring_offsets_wrap_large_ring(void)
+{
+    // A 4096-byte ring (power of two) across the 2^32 wrap with a write straddling it.
+    static uint8_t buf[4096], in[3000], out[3000];
+    ns_ring_t r;
+    ns_ring_init(&r, buf, sizeof buf);
+    r.head_off = r.tail_off = 0xFFFFFC00u;
+    for (int i = 0; i < 3000; i++) in[i] = (uint8_t)(i * 7);
+    CHECK(ns_ring_write(&r, in, 3000));
+    CHECK_EQ(ns_ring_peek(&r, 0xFFFFFC00u, out, sizeof out), 3000);
+    CHECK(memcmp(in, out, 3000) == 0);
+}
+
+static void line_fit_keeps_newline(void)
+{
+    char line[8];
+    // vsnprintf reported 20 chars for "0123456789abcdefghi\n" into an 8-byte buffer: 7 kept.
+    memcpy(line, "0123456", 8);
+    CHECK_EQ(ns_line_fit(line, 20, sizeof line), 7);
+    CHECK_EQ(line[6], '\n');
+    memcpy(line, "ab\n", 4);
+    CHECK_EQ(ns_line_fit(line, 3, sizeof line), 3);
+    CHECK_EQ(ns_line_fit(line, -1, sizeof line), 0);
+}
+
+void suite_ring_fixes(void)
+{
+    ring_init_rejects_non_pow2();
+    ring_offsets_wrap_large_ring();
+    line_fit_keeps_newline();
 }

@@ -7,6 +7,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+// Resend cycles without ACK progress before giving up until the next HELLO (ns_tx_rewind) or ACK,
+// so a device whose host went away does not keep the radio busy resending its ring forever.
+#define NS_TX_MAX_RESENDS 3
+
 typedef struct {
     ns_ring_t *ring;
     uint32_t boot_id;
@@ -18,9 +22,13 @@ typedef struct {
     uint8_t pend_type;           // frame built by the last ns_tx_next (0 = none)
     uint32_t pend_len;           // its DATA payload length, or its DROPPED count
     uint32_t pend_ms;            // now_ms when it was built
+    uint8_t resends;             // resend cycles since the last ACK progress
+    bool resend_dropped;         // send DROPPED again: the last one may have been lost
 } ns_tx_t;
 
 void ns_tx_init(ns_tx_t *t, ns_ring_t *r, uint32_t boot_id, bool ack_mode, uint32_t resend_ms);
 uint32_t ns_tx_next(ns_tx_t *t, uint32_t now_ms, uint8_t *out, uint32_t cap);
 void ns_tx_sent(ns_tx_t *t, uint32_t frame_len, bool ok);
+// A host said HELLO: resend everything held, from the tail, and the drop count.
+void ns_tx_rewind(ns_tx_t *t, uint32_t now_ms);
 void ns_tx_on_ack(ns_tx_t *t, uint32_t off, uint32_t now_ms);

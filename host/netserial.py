@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """netserial host tool: receive a device's console stream over UDP, log it, optionally expose a PTY.
 
-usage: netserial.py DEVICE [--port 5514] [--log FILE] [--pty] [--no-ack]
+usage: netserial.py DEVICE [--port 5514] [--listen PORT] [--log FILE] [--pty] [--no-ack]
 
 Sends HELLO to DEVICE:PORT until data arrives (and again after 10 s of silence), splices DATA frames
 by stream offset, ACKs the contiguous high-water offset, and reports JOINED / GAP / DROPPED / REBOOT
@@ -128,6 +128,14 @@ class Receiver:
         return [encode(ACK, self.boot_id, self.next, 0)] if self.ack else []
 
 
+def make_socket(listen_port=0):
+    """UDP socket for the host side. listen_port 0 = any free port (the device learns it from HELLO);
+    use the device's default-host port (5514) to catch boot-time output sent before any HELLO."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("", listen_port))
+    return sock
+
+
 def _utc():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds")
 
@@ -136,14 +144,16 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("device", help="device IPv4 address or hostname")
     ap.add_argument("--port", type=int, default=5514, help="device UDP port (default 5514)")
+    ap.add_argument("--listen", type=int, default=0,
+                    help="local UDP port; set to the device's NETSERIAL_PORT (5514) when the device "
+                         "streams to this host from boot (NETSERIAL_DEFAULT_HOST)")
     ap.add_argument("--log", help="append UTC-stamped lines and events to this file")
     ap.add_argument("--pty", action="store_true", help="expose the stream on a pseudo-terminal")
     ap.add_argument("--no-ack", action="store_true", help="device built without ACK mode")
     args = ap.parse_args(argv)
 
     dev = (socket.gethostbyname(args.device), args.port)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("", 0))
+    sock = make_socket(args.listen)
     log = open(args.log, "a", buffering=1) if args.log else None
     master = None
     if args.pty:

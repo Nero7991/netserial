@@ -1,12 +1,14 @@
 #include "ns_ring.h"
 #include <string.h>
 
-void ns_ring_init(ns_ring_t *r, uint8_t *buf, uint32_t size)
+bool ns_ring_init(ns_ring_t *r, uint8_t *buf, uint32_t size)
 {
+    if (size == 0 || (size & (size - 1)) != 0) return false;
     r->buf = buf;
     r->size = size;
     r->head_off = r->tail_off = 0;
     r->dropped = 0;
+    return true;
 }
 
 uint32_t ns_ring_used(const ns_ring_t *r) { return r->head_off - r->tail_off; }
@@ -14,7 +16,7 @@ uint32_t ns_ring_used(const ns_ring_t *r) { return r->head_off - r->tail_off; }
 // Copy n bytes between the ring at stream offset off and a linear buffer, splitting at the end.
 static void ring_copy(const ns_ring_t *r, uint32_t off, uint8_t *lin, uint32_t n, bool to_ring)
 {
-    uint32_t idx = off % r->size;
+    uint32_t idx = off & (r->size - 1);
     uint32_t first = r->size - idx < n ? r->size - idx : n;
     if (to_ring) {
         memcpy(r->buf + idx, lin, first);

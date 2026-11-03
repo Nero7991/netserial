@@ -3,6 +3,7 @@
 // cannot recurse into the stack). A low-priority task owns the socket: it reads HELLO/ACK from the
 // host and sends what ns_tx decides, at CONFIG_NETSERIAL_FLUSH_MS or at once after an error line.
 #include "netserial.h"
+#include "ns_line.h"
 #include "ns_frame.h"
 #include "ns_ring.h"
 #include "ns_tx.h"
@@ -18,6 +19,9 @@
 #include <string.h>
 
 #define LINE_MAX_BYTES 192   // longer lines are truncated, as a line on a 192-column console would be
+
+_Static_assert((CONFIG_NETSERIAL_RING_SIZE & (CONFIG_NETSERIAL_RING_SIZE - 1)) == 0,
+               "CONFIG_NETSERIAL_RING_SIZE must be a power of two");
 
 static uint8_t s_buf[CONFIG_NETSERIAL_RING_SIZE];
 static ns_ring_t s_ring;
@@ -37,7 +41,7 @@ static int ns_vprintf(const char *fmt, va_list ap)
     va_copy(ap2, ap);
     int n = vsnprintf(line, sizeof line, fmt, ap2);
     va_end(ap2);
-    if (n > (int)sizeof line - 1) n = sizeof line - 1;
+    n = ns_line_fit(line, n, sizeof line);
     if (n > 0 && (!s_filter || s_filter(line, n))) {
         taskENTER_CRITICAL(&s_mux);
         ns_ring_write(&s_ring, line, (uint32_t)n);
@@ -64,7 +68,7 @@ static void drain_rx(int fd, struct sockaddr_in *peer, bool *have_peer)
             *peer = from;
             *have_peer = true;
             taskENTER_CRITICAL(&s_mux);
-            s_tx.send_off = s_ring.tail_off;
+            ns_tx_rewind(&s_tx, now_ms());
             taskEXIT_CRITICAL(&s_mux);
         } else if (h.type == NS_ACK && *have_peer && h.boot_id == s_tx.boot_id &&
                    from.sin_addr.s_addr == peer->sin_addr.s_addr && from.sin_port == peer->sin_port) {
@@ -86,7 +90,10 @@ static void ns_task(void *arg)
     struct sockaddr_in me = { .sin_family = AF_INET, .sin_port = htons(CONFIG_NETSERIAL_PORT),
                               .sin_addr.s_addr = htonl(INADDR_ANY) };
     if (fd < 0 || bind(fd, (struct sockaddr *)&me, sizeof me) != 0) {
-        // Nothing can be sent; keep the hook (output is held) and stop here rather than spin.
+        // Nothing can be sent (for example the port is taken). Keep the hook, which then only fills
+        // the ring, and stop here rather than spin. Clear s_task first: the hook notifies it.
+        s_task = NULL;
+        if (fd >= 0) close(fd);
         vTaskDelete(NULL);
     }
     for (;;) {
