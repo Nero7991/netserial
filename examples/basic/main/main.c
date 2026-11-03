@@ -10,6 +10,15 @@
 #include "nvs_flash.h"
 #include <string.h>
 
+// Optional, git-ignored: examples/basic/main/wifi_creds_local.h defining EXAMPLE_WIFI_SSID and
+// EXAMPLE_WIFI_PASSWORD, so credentials never go into sdkconfig. Falls back to menuconfig.
+#if __has_include("wifi_creds_local.h")
+#include "wifi_creds_local.h"
+#else
+#define EXAMPLE_WIFI_SSID     CONFIG_EXAMPLE_WIFI_SSID
+#define EXAMPLE_WIFI_PASSWORD CONFIG_EXAMPLE_WIFI_PASSWORD
+#endif
+
 static const char *TAG = "example";
 
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -37,8 +46,8 @@ void app_main(void)
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
     wifi_config_t wc = {0};
-    strncpy((char *)wc.sta.ssid, CONFIG_EXAMPLE_WIFI_SSID, sizeof(wc.sta.ssid) - 1);
-    strncpy((char *)wc.sta.password, CONFIG_EXAMPLE_WIFI_PASSWORD, sizeof(wc.sta.password) - 1);
+    strncpy((char *)wc.sta.ssid, EXAMPLE_WIFI_SSID, sizeof(wc.sta.ssid) - 1);
+    strncpy((char *)wc.sta.password, EXAMPLE_WIFI_PASSWORD, sizeof(wc.sta.password) - 1);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
     ESP_ERROR_CHECK(esp_wifi_start());

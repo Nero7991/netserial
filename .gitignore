@@ -6,3 +6,4 @@ examples/*/sdkconfig.old
 __pycache__/
 .superpowers/
 .venv/
+examples/*/main/wifi_creds_local.h
