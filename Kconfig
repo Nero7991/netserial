@@ -1,0 +1,36 @@
+menu "netserial"
+    config NETSERIAL_RING_SIZE
+        int "Output ring size (bytes)"
+        default 8192
+        range 1024 65536
+        help
+            Output held until the host acknowledges it. When full, new output is dropped and
+            counted; the oldest (for example the boot log) is kept.
+    config NETSERIAL_FLUSH_MS
+        int "Send interval (ms)"
+        default 1000
+        range 10 60000
+        help
+            Output is batched and sent at this interval so a power-saving radio is not kept awake.
+            An error-level log line is sent immediately.
+    config NETSERIAL_RESEND_MS
+        int "Resend after no ACK progress (ms)"
+        default 2000
+        range 100 60000
+    config NETSERIAL_PORT
+        int "UDP port (device side)"
+        default 5514
+        range 1 65535
+    config NETSERIAL_DEFAULT_HOST
+        string "Default host IPv4 address"
+        default ""
+        help
+            Stream here from boot, before any host says HELLO. Empty: hold output until a host
+            sends HELLO.
+    config NETSERIAL_ACK_MODE
+        bool "Keep output until the host ACKs it"
+        default y
+        help
+            Off: output is committed once sendto() succeeds (less airtime, loss in flight is
+            reported by the host as a gap but not recovered).
+endmenu

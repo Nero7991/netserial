@@ -1,0 +1,8 @@
+menu "netserial example"
+    config EXAMPLE_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+    config EXAMPLE_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+endmenu
