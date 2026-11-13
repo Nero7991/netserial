@@ -13,7 +13,7 @@ menu "netserial"
         range 10 60000
         help
             Output is batched and sent at this interval so a power-saving radio is not kept awake.
-            An error-level log line is sent immediately.
+            An error-level log line is sent immediately, and so is the ring once it is half full.
     config NETSERIAL_RESEND_MS
         int "Resend after no ACK progress (ms)"
         default 2000

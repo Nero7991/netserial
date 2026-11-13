@@ -103,3 +103,65 @@ FLUSH 1000, 29.3 req/s: delivered  528 of 1170; DROPPED 152,536 B
 - Behaviour across a real AP disconnect (the design's HIL test a) was not run.
 - Light sleep and C6 targets were not tested.
 - Throughput ceiling with FLUSH 200 was not found (T9 only reached about 4 KB/s of added load).
+
+## CORRECTION (2026-11-13, later): the hook does not double the printf stack
+
+Finding 4 above said the hook "doubles the printf stack" because each line is formatted twice. That
+is withdrawn: the hook's `vsnprintf` and the chained console `vprintf` run one after the other, not
+nested, so the peak is one formatting frame plus the hook's own frame. Measured on the anchor
+(4096-byte task, one line, high-water mark):
+
+```
+printf                       1900 B
+ESP_LOGI, no hook            2012 B     ESP_LOGI with %f, no hook    2008 B
+ESP_LOGI, hook (bda0df0)     2264 B     with %f, hook (bda0df0)      2340 B    (+252 / +332)
+```
+
+The cost is the 192-byte line buffer and the hook frame, not a second printf frame. That was
+still enough to overflow the app's 2304-byte `sys_evt` stack.
+
+## RESOLUTION (2026-11-13): fixes for findings 1-4, verified on the anchor
+
+Same anchor and app; netserial at default settings (8 KB ring, FLUSH 1000 ms).
+
+1. **Drops**: the task listens on the socket (select, 50 ms slices) while sent bytes await their ACK,
+   and the hook wakes it when the ring reaches half full. T9 repeated at default FLUSH 1000:
+   ```
+   before (FLUSH 1000, 57.0 req/s): delivered  784 of 2282, DROPPED 325,270 B
+   after  (FLUSH 1000, 55.4 req/s): delivered 2218 of 2218, DROPPED 0 B after the join
+   ```
+   (The one DROPPED 11001 at join is output from before any host connected: keep-oldest, finding 5.)
+2. **Error fast path**: `ns_line_is_error` skips a leading color escape. T3 repeated:
+   ```
+   before: E median 0.545 s           after: E n=1148 median 0.006 s, p90 0.012 s
+   ```
+3. **Two hosts**: new device-to-host frames. SYNC (reply to HELLO, seq = oldest held offset) lets a
+   rejoining host skip what another host took, instead of stalling. BYE (to the previous peer, and
+   to any non-peer that ACKs) makes the host log `DISPLACED` and stop sending HELLO. The host also
+   skips a hole after 6 s without progress (`STALL_S`), as a backstop for a lost SYNC. T5 repeated,
+   lines per 5 s:
+   ```
+   A: 33:00=156 33:05=188 33:10=189 33:15=160, then DISPLACED by B, stops
+   B: 33:15=28 33:20=185 ... 34:10=185 34:15=160 (60 s, no blackout, no GAP)
+   ```
+4. **Hook stack**: lines are formatted into one of 4 static buffers (claimed under the ring
+   spinlock), falling back to a stack buffer only when all 4 are in use. When the console hook is
+   plain `vprintf`, the formatted line is written with `fwrite` instead of being formatted again:
+   ```
+   ESP_LOGI, hook (fixed)       1656 B  (no hook: 2012)
+   with %f, hook (fixed)        2148 B  (no hook: 2008)
+   ```
+   The %f case still costs +140 B (newlib's float formatting into a string is heavier); integer
+   lines are now cheaper than without the hook.
+
+Regression: T4 (20% loss each way, 60 s) repeated. No GAP, no out-of-order lines. DROPPED after
+the join: before 26 events, 71,994 B; after 43 events, 15,850 B. Under loss, each lost ACK still
+holds the ring until the 2 s resend.
+
+Measurement trap found while repeating T4: counting duplicate lines with `sort | uniq -d` is not a
+protocol check. The app logs identical lines in the same millisecond (`TWR: retry limit exceeded`
+twice), and the old T4 log has 38 such pairs too. Check stream offsets for duplication, not text.
+
+Still open: 5 (keep-oldest; documented in the README, with DEFAULT_HOST as the workaround), 6
+(slow reboot detection), 7 (printf not captured), 8 (truncation at 191 bytes, now documented). The
+displaced host does not reclaim the stream if the other host goes away (restart it).

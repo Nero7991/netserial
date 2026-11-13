@@ -24,6 +24,7 @@ typedef struct {
     uint32_t pend_ms;            // now_ms when it was built
     uint8_t resends;             // resend cycles since the last ACK progress
     bool resend_dropped;         // send DROPPED again: the last one may have been lost
+    bool sync_pending;           // a HELLO arrived: tell the host the oldest held offset (SYNC)
 } ns_tx_t;
 
 void ns_tx_init(ns_tx_t *t, ns_ring_t *r, uint32_t boot_id, bool ack_mode, uint32_t resend_ms);
@@ -32,3 +33,6 @@ void ns_tx_sent(ns_tx_t *t, uint32_t frame_len, bool ok);
 // A host said HELLO: resend everything held, from the tail, and the drop count.
 void ns_tx_rewind(ns_tx_t *t, uint32_t now_ms);
 void ns_tx_on_ack(ns_tx_t *t, uint32_t off, uint32_t now_ms);
+// Bytes are out and an ACK for them is expected soon (the caller should listen for it rather than
+// wait for the next flush). False once the resends gave up: nobody is listening.
+bool ns_tx_awaiting_ack(const ns_tx_t *t);
