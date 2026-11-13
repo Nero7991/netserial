@@ -34,4 +34,14 @@ menu "netserial"
         help
             Off: output is committed once sendto() succeeds (less airtime, loss in flight is
             reported by the host as a gap but not recovered).
+    config NETSERIAL_LAST_WORDS_SIZE
+        int "Last-words recorder size (bytes, 0 = off)"
+        default 2048
+        range 0 16384
+        help
+            The newest output is also kept in a small circular buffer in RAM that survives a
+            software, panic or watchdog reset. After such a reset the next boot replays the newest
+            whole lines into the stream, between marker lines, so the output just before a crash
+            is not lost even if it never reached the host (or the ring was full and dropping).
+            Costs this much RAM. Not kept across power-on or brownout resets.
 endmenu

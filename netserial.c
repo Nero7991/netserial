@@ -7,8 +7,11 @@
 #include "ns_frame.h"
 #include "ns_ring.h"
 #include "ns_tx.h"
+#include "ns_lastwords.h"
 
+#include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -32,6 +35,12 @@ static netserial_filter_t s_filter;
 static TaskHandle_t s_task;
 static bool s_started;
 
+#if CONFIG_NETSERIAL_LAST_WORDS_SIZE > 0
+// Survives software, panic and watchdog resets; random after power-on (ns_lw_valid rejects that).
+static __NOINIT_ATTR uint8_t s_lw_buf[CONFIG_NETSERIAL_LAST_WORDS_SIZE];
+static __NOINIT_ATTR ns_lw_t s_lw;
+#endif
+
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
 static int ns_vprintf(const char *fmt, va_list ap)
@@ -45,6 +54,9 @@ static int ns_vprintf(const char *fmt, va_list ap)
     if (n > 0 && (!s_filter || s_filter(line, n))) {
         taskENTER_CRITICAL(&s_mux);
         ns_ring_write(&s_ring, line, (uint32_t)n);
+#if CONFIG_NETSERIAL_LAST_WORDS_SIZE > 0
+        ns_lw_write(&s_lw, line, (uint32_t)n);   // kept even when the ring is full and dropping
+#endif
         taskEXIT_CRITICAL(&s_mux);
         if (line[0] == 'E' && line[1] == ' ' && s_task) xTaskNotifyGive(s_task);   // send errors now
     }
@@ -113,10 +125,57 @@ static void ns_task(void *arg)
     }
 }
 
+#if CONFIG_NETSERIAL_LAST_WORDS_SIZE > 0
+static const char *reset_name(esp_reset_reason_t r)
+{
+    switch (r) {
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt watchdog";
+    case ESP_RST_TASK_WDT: return "task watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep sleep";
+    case ESP_RST_EXT: return "external pin";
+    case ESP_RST_USB: return "USB";
+    case ESP_RST_JTAG: return "JTAG";
+    default: return "other";
+    }
+}
+
+// Put the previous boot's newest lines (if its RAM survived) at the start of this boot's stream,
+// then start recording afresh. Runs before the log hook is installed: no locking needed.
+static void replay_last_words(void)
+{
+    esp_reset_reason_t rr = esp_reset_reason();
+    bool keep = rr != ESP_RST_POWERON && rr != ESP_RST_BROWNOUT && rr != ESP_RST_UNKNOWN &&
+                ns_lw_valid(&s_lw, s_lw_buf, sizeof s_lw_buf);
+    if (keep) {
+        const uint8_t *p1, *p2;
+        uint32_t n1, n2;
+        ns_lw_segments(&s_lw, &p1, &n1, &p2, &n2);
+        if (n1 + n2 > 0) {
+            char hdr[112];
+            int h = snprintf(hdr, sizeof hdr, "---- netserial: last %u bytes of the previous boot "
+                             "(reset: %s) ----\n", (unsigned)(n1 + n2), reset_name(rr));
+            ns_ring_write(&s_ring, hdr, (uint32_t)h);
+            ns_ring_write(&s_ring, p1, n1);
+            ns_ring_write(&s_ring, p2, n2);
+            if ((n2 ? p2[n2 - 1] : p1[n1 - 1]) != '\n') ns_ring_write(&s_ring, "\n", 1);
+            static const char end[] = "---- netserial: end of previous boot ----\n";
+            ns_ring_write(&s_ring, end, sizeof end - 1);
+        }
+    }
+    ns_lw_init(&s_lw, s_lw_buf, sizeof s_lw_buf);
+}
+#endif
+
 esp_err_t netserial_start(netserial_filter_t filter)
 {
     if (s_started) return ESP_OK;
     ns_ring_init(&s_ring, s_buf, sizeof s_buf);
+#if CONFIG_NETSERIAL_LAST_WORDS_SIZE > 0
+    replay_last_words();
+#endif
     ns_tx_init(&s_tx, &s_ring, esp_random(), CONFIG_NETSERIAL_ACK_MODE, CONFIG_NETSERIAL_RESEND_MS);
     s_filter = filter;
     if (xTaskCreate(ns_task, "netserial", 3072, NULL, 2, &s_task) != pdPASS) return ESP_ERR_NO_MEM;
