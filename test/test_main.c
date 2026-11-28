@@ -9,6 +9,8 @@ void suite_frame(void);
 void suite_tx(void);
 void suite_ring_fixes(void);
 void suite_tx_fixes(void);
+void suite_lastwords(void);
+void suite_hil_fixes(void);
 
 static const struct { const char *name; void (*fn)(void); } SUITES[] = {
     { "ring", suite_ring },
@@ -16,6 +18,8 @@ static const struct { const char *name; void (*fn)(void); } SUITES[] = {
     { "tx", suite_tx },
     { "ring_fixes", suite_ring_fixes },
     { "tx_fixes", suite_tx_fixes },
+    { "lastwords", suite_lastwords },
+    { "hil_fixes", suite_hil_fixes },
 };
 #define N_SUITES (sizeof(SUITES) / sizeof(SUITES[0]))
 

@@ -20,6 +20,12 @@ bool ns_ring_write(ns_ring_t *r, const void *p, uint32_t n);
 uint32_t ns_ring_peek(const ns_ring_t *r, uint32_t from_off, uint8_t *out, uint32_t max);
 void ns_ring_ack(ns_ring_t *r, uint32_t off);
 uint32_t ns_ring_used(const ns_ring_t *r);
+// True when a write took the ring from below half full to half full or more: the moment to send
+// early instead of waiting for the next flush.
+static inline bool ns_ring_crossed_half(const ns_ring_t *r, uint32_t used_before, uint32_t used_after)
+{
+    return used_before < r->size / 2 && used_after >= r->size / 2;
+}
 
 // a - b as a signed distance, valid while the two offsets are within 2^31 of each other.
 static inline int32_t ns_off_diff(uint32_t a, uint32_t b) { return (int32_t)(a - b); }

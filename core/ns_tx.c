@@ -1,5 +1,6 @@
 #include "ns_tx.h"
 #include "ns_frame.h"
+#include <stddef.h>
 
 void ns_tx_init(ns_tx_t *t, ns_ring_t *r, uint32_t boot_id, bool ack_mode, uint32_t resend_ms)
 {
@@ -20,6 +21,13 @@ uint32_t ns_tx_next(ns_tx_t *t, uint32_t now_ms, uint8_t *out, uint32_t cap)
         t->resend_dropped = r->dropped != 0;
     }
     ns_hdr_t h = { .boot_id = t->boot_id, .dev_ms = now_ms };
+    if (t->sync_pending) {
+        h.type = NS_SYNC;
+        h.seq = r->tail_off;
+        uint32_t n = ns_frame_encode(&h, NULL, out, cap);
+        if (n) t->pend_type = NS_SYNC;
+        return n;
+    }
     if (r->dropped != t->reported_dropped || t->resend_dropped) {
         uint8_t p[4] = { (uint8_t)r->dropped, (uint8_t)(r->dropped >> 8), (uint8_t)(r->dropped >> 16),
                          (uint8_t)(r->dropped >> 24) };
@@ -52,6 +60,10 @@ void ns_tx_sent(ns_tx_t *t, uint32_t frame_len, bool ok)
     uint8_t type = t->pend_type;
     t->pend_type = 0;
     if (!ok || frame_len == 0 || type == 0) return;
+    if (type == NS_SYNC) {
+        t->sync_pending = false;
+        return;
+    }
     if (type == NS_DROPPED) {
         t->reported_dropped = t->pend_len;
         t->resend_dropped = false;
@@ -78,4 +90,10 @@ void ns_tx_rewind(ns_tx_t *t, uint32_t now_ms)
     t->last_progress_ms = now_ms;
     t->resends = 0;
     t->resend_dropped = t->ring->dropped != 0;
+    t->sync_pending = true;
+}
+
+bool ns_tx_awaiting_ack(const ns_tx_t *t)
+{
+    return t->ack_mode && t->send_off != t->ring->tail_off && t->resends < NS_TX_MAX_RESENDS;
 }

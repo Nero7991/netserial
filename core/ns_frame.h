@@ -11,7 +11,15 @@
 #define NS_FRAME_MAX 1400
 #define NS_FRAME_VER 1
 
-enum { NS_DATA = 1, NS_DROPPED = 2, NS_HELLO = 3, NS_ACK = 4 };
+// SYNC (device -> host, reply to HELLO): no payload, seq = oldest offset the device still holds.
+// A host whose next expected offset is below it has missed those bytes for good (another host
+// ACKed them): it reports a GAP and continues from seq instead of waiting for them.
+// BYE (device -> host): a HELLO from another host took the stream. Payload: the new host's IPv4
+// address (4 bytes) and UDP port (2 bytes), network byte order.
+enum { NS_DATA = 1, NS_DROPPED = 2, NS_HELLO = 3, NS_ACK = 4, NS_SYNC = 5, NS_BYE = 6 };
+
+// BYE payload for a host at ip_host / port_host (both in host byte order).
+void ns_bye_payload(uint32_t ip_host, uint16_t port_host, uint8_t out[6]);
 
 typedef struct {
     uint8_t type;

@@ -26,8 +26,22 @@ python3 host/netserial.py <device-ip> --listen 5514          # if the device str
 ```
 
 Events in the log: `JOINED <offset>`, `GAP <bytes>`, `DROPPED <bytes>` (device ring was full),
-`REBOOT`. Kconfig: ring size (power of two), flush interval, resend interval, port, default host,
-ACK mode. Requires log version 1 (the default): under log v2 the line filter sees fragments.
+`REBOOT`, `DISPLACED by <ip:port>`. Kconfig: ring size (power of two), flush interval, resend
+interval, port, default host, ACK mode, last-words size. Requires log version 1 (the default):
+under log v2 the line filter sees fragments.
+
+One host at a time: the device streams to the last host that said HELLO and sends the previous one
+a BYE. That host logs `DISPLACED` and stops sending HELLO, so two hosts do not take turns stealing
+the stream; restart it to take the stream back.
+
+The ring keeps the oldest output when full, so a host that joins a long-running device sees the
+boot log and then a large `DROPPED`, not the recent output. For field debugging set
+`CONFIG_NETSERIAL_DEFAULT_HOST` and run the host with `--listen 5514`: it then captures from boot.
+
+When to send: every flush interval, at once for an error line, and when the ring reaches half full.
+While sent bytes await their ACK the task listens on the socket, so the ACK frees the ring within a
+round trip. The log hook formats each line once, into one of 4 static line buffers (768 bytes of
+RAM), so logging tasks need no extra stack for it. Lines over 191 bytes are truncated.
 
 ## Host tests
 

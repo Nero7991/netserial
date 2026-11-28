@@ -154,6 +154,9 @@ static void tx_resend_gives_up_without_host(void)
     }
     CHECK_EQ(resends, NS_TX_MAX_RESENDS);
     ns_tx_rewind(&s_t, now);                   // a HELLO: start again from the tail
+    uint32_t n = ns_tx_next(&s_t, now, s_out, sizeof s_out);
+    CHECK_EQ(decode(n).type, NS_SYNC);         // the reply to HELLO comes first
+    ns_tx_sent(&s_t, n, true);
     ns_hdr_t h = decode(ns_tx_next(&s_t, now, s_out, sizeof s_out));
     CHECK_EQ(h.seq, 0);
     CHECK_EQ(h.len, 3);
