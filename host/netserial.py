@@ -56,8 +56,11 @@ class Receiver:
     DISPLACED by ip:port. displaced is set (to "ip:port") once the device says another host took over.
     """
 
-    def __init__(self, on_line, on_event, on_raw=None, ack=True):
+    def __init__(self, on_line, on_event, on_raw=None, ack=True, resend_ms=2000):
         self.on_line, self.on_event, self.on_raw, self.ack = on_line, on_event, on_raw, ack
+        # A hole is only unrecoverable once the device has had time to resend it a few times:
+        # STALL_S covers the default 2 s resend; a longer CONFIG_NETSERIAL_RESEND_MS needs more.
+        self.stall_s = max(STALL_S, 3.0 * resend_ms / 1000.0)
         self.boot_id = None
         self.displaced = None
         self._reset()
@@ -155,7 +158,7 @@ class Receiver:
             self.stall_since = None
         elif self.stall_since is None:
             self.stall_since = now
-        elif now - self.stall_since >= STALL_S:
+        elif now - self.stall_since >= self.stall_s:
             self._skip_ahead()
             self.stall_since = None
         return self._ack()
@@ -183,6 +186,9 @@ def main(argv=None):
     ap.add_argument("--log", help="append UTC-stamped lines and events to this file")
     ap.add_argument("--pty", action="store_true", help="expose the stream on a pseudo-terminal")
     ap.add_argument("--no-ack", action="store_true", help="device built without ACK mode")
+    ap.add_argument("--resend-ms", type=int, default=2000,
+                    help="the device's CONFIG_NETSERIAL_RESEND_MS (default 2000); sets how long a "
+                         "hole is waited for before it is reported as a GAP")
     args = ap.parse_args(argv)
 
     dev = (socket.gethostbyname(args.device), args.port)
@@ -211,7 +217,7 @@ def main(argv=None):
             except OSError:
                 pass   # nobody attached to the PTY yet; the log still has it
 
-    rx = Receiver(on_line, on_event, on_raw, ack=not args.no_ack)
+    rx = Receiver(on_line, on_event, on_raw, ack=not args.no_ack, resend_ms=args.resend_ms)
     last_rx = last_hello = 0.0
     try:
         while True:

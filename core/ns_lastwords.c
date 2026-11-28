@@ -65,3 +65,34 @@ void ns_lw_segments(const ns_lw_t *lw, const uint8_t **p1, uint32_t *n1, const u
     *n1 = first;
     *n2 = len - first;
 }
+
+static void lw_skip(const uint8_t **p1, uint32_t *n1, const uint8_t **p2, uint32_t *n2, uint32_t k)
+{
+    uint32_t a = k < *n1 ? k : *n1;
+    *p1 += a;
+    *n1 -= a;
+    k -= a;
+    if (k > *n2) k = *n2;
+    *p2 += k;
+    *n2 -= k;
+}
+
+void ns_lw_trim(const uint8_t **p1, uint32_t *n1, const uint8_t **p2, uint32_t *n2, uint32_t max)
+{
+    uint32_t total = *n1 + *n2;
+    if (total <= max) return;
+    const uint8_t *p2_start = *p2;
+    lw_skip(p1, n1, p2, n2, total - max);
+    // Now inside a line, unless the cut landed right after a newline. The byte before the cut is
+    // in the first segment unless the cut moved into the second.
+    const uint8_t *before = *p2 > p2_start ? *p2 - 1 : *p1 - 1;
+    if (*before == '\n') return;
+    uint32_t rest = *n1 + *n2;
+    for (uint32_t i = 0; i < rest; i++) {
+        uint8_t c = i < *n1 ? (*p1)[i] : (*p2)[i - *n1];
+        if (c == '\n') {
+            if (i + 1 < rest) lw_skip(p1, n1, p2, n2, i + 1);
+            return;
+        }
+    }
+}

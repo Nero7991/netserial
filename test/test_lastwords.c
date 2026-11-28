@@ -95,6 +95,37 @@ static void lw_exact_fill_and_trailing_partial(void)
     CHECK(strcmp(out, "def\ngh") == 0);
 }
 
+// The replay must fit the ring it is written into (Codex): drop the oldest bytes, then start
+// on a whole line.
+static uint32_t trim_join(const char *a, const char *b, uint32_t max, char *out)
+{
+    const uint8_t *p1 = (const uint8_t *)a, *p2 = (const uint8_t *)b;
+    uint32_t n1 = (uint32_t)strlen(a), n2 = (uint32_t)strlen(b);
+    ns_lw_trim(&p1, &n1, &p2, &n2, max);
+    memcpy(out, p1, n1);
+    memcpy(out + n1, p2, n2);
+    out[n1 + n2] = 0;
+    return n1 + n2;
+}
+
+static void lw_trim_fits_newest_whole_lines(void)
+{
+    char out[64];
+    CHECK_EQ(trim_join("aa\nbb\n", "cc\ndd\n", 12, out), 12);   // fits: unchanged
+    CHECK(strcmp(out, "aa\nbb\ncc\ndd\n") == 0);
+    CHECK_EQ(trim_join("aa\nbb\n", "cc\ndd\n", 7, out), 6);    // cut inside the first segment
+    CHECK(strcmp(out, "cc\ndd\n") == 0);
+    CHECK_EQ(trim_join("aa\nbb\n", "cc\ndd\n", 6, out), 6);    // cut exactly at the boundary
+    CHECK(strcmp(out, "cc\ndd\n") == 0);
+    CHECK_EQ(trim_join("aa\nbb", "\ncc\n", 4, out), 3);         // boundary inside a line
+    CHECK(strcmp(out, "cc\n") == 0);
+    CHECK_EQ(trim_join("aa\nbb\n", "cc\ndd\n", 4, out), 3);    // cut inside the second
+    CHECK(strcmp(out, "dd\n") == 0);
+    CHECK_EQ(trim_join("abcdefgh", "", 3, out), 3);              // one long line: keep its tail
+    CHECK(strcmp(out, "fgh") == 0);
+    CHECK_EQ(trim_join("aa\n", "bb\n", 0, out), 0);
+}
+
 void suite_lastwords(void)
 {
     lw_fresh_is_valid_and_empty();
@@ -103,4 +134,5 @@ void suite_lastwords(void)
     lw_wrap_keeps_newest_whole_lines();
     lw_line_longer_than_buffer();
     lw_exact_fill_and_trailing_partial();
+    lw_trim_fits_newest_whole_lines();
 }

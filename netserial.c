@@ -46,6 +46,9 @@ static uint8_t s_pool_busy;   // bit i: s_pool[i] is in use (guarded by s_mux)
 // Survives software, panic and watchdog resets; random after power-on (ns_lw_valid rejects that).
 static __NOINIT_ATTR uint8_t s_lw_buf[CONFIG_NETSERIAL_LAST_WORDS_SIZE];
 static __NOINIT_ATTR ns_lw_t s_lw;
+// .bss, so false at every boot until replay_last_words() has initialized s_lw: a panic before
+// netserial_start() must not write through a random .noinit header (Codex).
+static bool s_lw_ready;
 #endif
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
@@ -74,7 +77,7 @@ IRAM_ATTR void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
     for (size_t i = 0; a[i]; i++) msg[n++] = a[i];
     for (size_t i = 0; name && name[i] && i < configMAX_TASK_NAME_LEN; i++) msg[n++] = name[i];
     for (size_t i = 0; b[i]; i++) msg[n++] = b[i];
-    ns_lw_write(&s_lw, msg, (uint32_t)n);
+    if (s_lw_ready) ns_lw_write(&s_lw, msg, (uint32_t)n);
     msg[n - 1] = '\0';   // esp_system_abort prints its own newline
     esp_system_abort(msg);
 }
@@ -82,12 +85,13 @@ IRAM_ATTR void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
 void __wrap_panic_print_char(const char c)
 {
     __real_panic_print_char(c);
-    ns_lw_write(&s_lw, &c, 1);
+    if (s_lw_ready) ns_lw_write(&s_lw, &c, 1);
 }
 
 void __wrap_panic_print_str(const char *str)
 {
     __real_panic_print_str(str);   // calls the real panic_print_char (same file): no double copy
+    if (!s_lw_ready) return;
     size_t n = 0;
     while (str[n]) n++;
     ns_lw_write(&s_lw, str, (uint32_t)n);
@@ -96,6 +100,7 @@ void __wrap_panic_print_str(const char *str)
 void __wrap_panic_print_hex(int h)
 {
     __real_panic_print_hex(h);
+    if (!s_lw_ready) return;
     char b[8];
     for (int i = 0; i < 8; i++) {
         int c = (int)(((unsigned)h >> (28 - 4 * i)) & 0xf);
@@ -107,6 +112,7 @@ void __wrap_panic_print_hex(int h)
 void __wrap_panic_print_dec(int d)
 {
     __real_panic_print_dec(d);
+    if (!s_lw_ready) return;
     char b[2] = { d / 10 ? (char)('0' + d / 10 % 10) : ' ', (char)('0' + d % 10) };
     ns_lw_write(&s_lw, b, sizeof b);
 }
@@ -319,6 +325,11 @@ static void replay_last_words(void)
         const uint8_t *p1, *p2;
         uint32_t n1, n2;
         ns_lw_segments(&s_lw, &p1, &n1, &p2, &n2);
+        // The ring drops a write that does not fit whole, and nothing drains it yet: keep the
+        // newest lines that fit after the markers (Codex).
+        uint32_t room = s_ring.size - ns_ring_used(&s_ring);
+        uint32_t markers = 112 + 1 + 48;
+        ns_lw_trim(&p1, &n1, &p2, &n2, room > markers ? room - markers : 0);
         if (n1 + n2 > 0) {
             char hdr[112];
             int h = snprintf(hdr, sizeof hdr, "---- netserial: last %u bytes of the previous boot "
@@ -332,6 +343,7 @@ static void replay_last_words(void)
         }
     }
     ns_lw_init(&s_lw, s_lw_buf, sizeof s_lw_buf);
+    s_lw_ready = true;
 }
 #endif
 

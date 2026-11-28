@@ -22,3 +22,6 @@ void ns_lw_write(ns_lw_t *lw, const void *p, uint32_t n);
 // (partial) line is skipped so the replay starts on a line boundary.
 void ns_lw_segments(const ns_lw_t *lw, const uint8_t **p1, uint32_t *n1, const uint8_t **p2,
                     uint32_t *n2);
+// Keep at most max bytes of the two segments: drop the oldest, then start after the next
+// newline so the replay begins on a whole line (a single line longer than max keeps its tail).
+void ns_lw_trim(const uint8_t **p1, uint32_t *n1, const uint8_t **p2, uint32_t *n2, uint32_t max);

@@ -164,3 +164,17 @@ def test_stall_clock_resets_on_progress():
     rx.feed(data(2, b"b\n"), now=2.0)           # partly filled: progress
     rx.feed(data(10, b"c\n"), now=2.0 + ns.STALL_S - 0.5)
     assert not any(e.startswith("GAP") for e in events)
+
+
+def test_stall_window_follows_the_device_resend_interval():
+    # A device built with a long resend (Codex): a hole is still recoverable after 6 s, so the
+    # receiver must wait longer than the device's resend interval before declaring a GAP.
+    lines, events = [], []
+    rx = ns.Receiver(lines.append, events.append, resend_ms=20000)
+    rx.feed(data(0, b"a\n"), now=0.0)
+    rx.feed(data(4, b"c\n"), now=1.0)                # hole 2..4
+    rx.feed(data(6, b"d\n"), now=8.0)
+    assert not any(e.startswith("GAP") for e in events)
+    rx.feed(data(2, b"b\n"), now=21.0)               # the resend arrives
+    assert lines == [b"a", b"b", b"c", b"d"]
+    assert not any(e.startswith("GAP") for e in events)
