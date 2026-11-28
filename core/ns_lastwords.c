@@ -28,18 +28,26 @@ bool ns_lw_valid(const ns_lw_t *lw, const uint8_t *buf, uint32_t size)
 
 void ns_lw_write(ns_lw_t *lw, const void *p, uint32_t n)
 {
+    if (n == 0) return;
     const uint8_t *src = p;
     uint8_t *buf = lw_buf(lw);
+    uint32_t skip = 0;
     if (n > lw->size) {   // only the tail can survive
-        src += n - lw->size;
-        lw->head += n - lw->size;
+        skip = n - lw->size;
+        src += skip;
         n = lw->size;
     }
-    uint32_t idx = lw->head % lw->size;
+    // 32-bit only: a 64-bit modulo calls libgcc's __umoddi3, which is in flash, and this runs
+    // from the panic handler with the cache possibly disabled.
+    uint32_t idx = (lw->head % lw->size + skip % lw->size) % lw->size;
     uint32_t first = lw->size - idx < n ? lw->size - idx : n;
     memcpy(buf + idx, src, first);
     memcpy(buf, src + first, n - first);
-    lw->head += n;
+    // Once anything has been overwritten, head stays in (size, 2 x size]: the write index
+    // (head % size) continues, "wrapped" (head > size) is kept, and the counter itself never
+    // wraps, which after 4 GiB would make a full recorder read as empty.
+    bool wrapped = (uint64_t)lw->head + skip + n > lw->size;
+    lw->head = wrapped ? lw->size + (idx + n - 1) % lw->size + 1 : lw->head + n;
     lw->check = lw_check(lw);
 }
 

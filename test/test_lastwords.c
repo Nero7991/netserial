@@ -126,6 +126,24 @@ static void lw_trim_fits_newest_whole_lines(void)
     CHECK_EQ(trim_join("aa\n", "bb\n", 0, out), 0);
 }
 
+// The byte counter must not wrap (Codex): after 4 GiB a full recorder would read as empty. It
+// stays below 2 x size once full, for any size, and the replay is unchanged.
+static void lw_head_stays_bounded(void)
+{
+    uint8_t buf[30];   // not a power of two
+    ns_lw_t lw;
+    char out[64], line[16];
+    ns_lw_init(&lw, buf, sizeof buf);
+    for (int i = 0; i < 5000; i++) {
+        int n = snprintf(line, sizeof line, "L%04d\n", i % 10000);
+        ns_lw_write(&lw, line, (uint32_t)n);
+        CHECK(lw.head <= 2 * sizeof buf);
+    }
+    CHECK(ns_lw_valid(&lw, buf, sizeof buf));
+    CHECK_EQ(replay(&lw, out), 24);   // 30 bytes hold 5 lines of 6; the oldest is partial
+    CHECK(strcmp(out, "L4996\nL4997\nL4998\nL4999\n") == 0);
+}
+
 void suite_lastwords(void)
 {
     lw_fresh_is_valid_and_empty();
@@ -135,4 +153,5 @@ void suite_lastwords(void)
     lw_line_longer_than_buffer();
     lw_exact_fill_and_trailing_partial();
     lw_trim_fits_newest_whole_lines();
+    lw_head_stays_bounded();
 }
