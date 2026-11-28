@@ -54,6 +54,8 @@ static bool s_lw_ready;
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
 #if CONFIG_NETSERIAL_LAST_WORDS_SIZE > 0
+// All of this path is cache-safe (IRAM_ATTR here, ns_lastwords via linker.lf, data in DRAM):
+// with CONFIG_ESP_PANIC_HANDLER_IRAM a panic prints with the flash cache disabled.
 // The panic handler does not go through esp_log: it prints with panic_print_* straight to the
 // console. These link-time wrappers (CMakeLists: -Wl,--wrap) copy that output into the
 // last-words recorder too, so a crash's reason and backtrace are replayed over the network on
@@ -70,8 +72,8 @@ void __real_panic_print_dec(int d);
 IRAM_ATTR void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
 {
     (void)task;
-    static const char a[] = "***ERROR*** A stack overflow in task ";
-    static const char b[] = " has been detected.\n";
+    static DRAM_ATTR const char a[] = "***ERROR*** A stack overflow in task ";
+    static DRAM_ATTR const char b[] = " has been detected.\n";
     char msg[sizeof a + configMAX_TASK_NAME_LEN + sizeof b];
     size_t n = 0;
     for (size_t i = 0; a[i]; i++) msg[n++] = a[i];
@@ -82,13 +84,13 @@ IRAM_ATTR void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
     esp_system_abort(msg);
 }
 
-void __wrap_panic_print_char(const char c)
+IRAM_ATTR void __wrap_panic_print_char(const char c)
 {
     __real_panic_print_char(c);
     if (s_lw_ready) ns_lw_write(&s_lw, &c, 1);
 }
 
-void __wrap_panic_print_str(const char *str)
+IRAM_ATTR void __wrap_panic_print_str(const char *str)
 {
     __real_panic_print_str(str);   // calls the real panic_print_char (same file): no double copy
     if (!s_lw_ready) return;
@@ -97,7 +99,7 @@ void __wrap_panic_print_str(const char *str)
     ns_lw_write(&s_lw, str, (uint32_t)n);
 }
 
-void __wrap_panic_print_hex(int h)
+IRAM_ATTR void __wrap_panic_print_hex(int h)
 {
     __real_panic_print_hex(h);
     if (!s_lw_ready) return;
@@ -109,7 +111,7 @@ void __wrap_panic_print_hex(int h)
     ns_lw_write(&s_lw, b, sizeof b);
 }
 
-void __wrap_panic_print_dec(int d)
+IRAM_ATTR void __wrap_panic_print_dec(int d)
 {
     __real_panic_print_dec(d);
     if (!s_lw_ready) return;

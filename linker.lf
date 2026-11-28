@@ -1,0 +1,6 @@
+# The last-words recorder is called from the panic handler's print wrappers, which can run with
+# the flash cache disabled (CONFIG_ESP_PANIC_HANDLER_IRAM): keep it out of flash.
+[mapping:netserial]
+archive: libnetserial.a
+entries:
+    ns_lastwords (noflash)

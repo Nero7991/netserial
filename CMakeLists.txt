@@ -4,7 +4,8 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "core"
     REQUIRES log
-    PRIV_REQUIRES lwip esp_timer esp_hw_support esp_system freertos)
+    PRIV_REQUIRES lwip esp_timer esp_hw_support esp_system freertos
+    LDFRAGMENTS "linker.lf")
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Werror)
 
 # Last words also record the panic handler's output (see the __wrap_panic_print_* in netserial.c).
