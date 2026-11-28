@@ -50,6 +50,68 @@ static __NOINIT_ATTR ns_lw_t s_lw;
 
 static uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
+#if CONFIG_NETSERIAL_LAST_WORDS_SIZE > 0
+// The panic handler does not go through esp_log: it prints with panic_print_* straight to the
+// console. These link-time wrappers (CMakeLists: -Wl,--wrap) copy that output into the
+// last-words recorder too, so a crash's reason and backtrace are replayed over the network on
+// the next boot. The real function runs first: if the recorder faults (a panic with the cache
+// disabled), the console still has the output.
+void __real_panic_print_char(const char c);
+void __real_panic_print_str(const char *str);
+void __real_panic_print_hex(int h);
+void __real_panic_print_dec(int d);
+
+// panic.c prints its own reason lines through same-file calls, which the link-time wrap does
+// not see; the most common reason worth knowing remotely is a stack overflow, so record the
+// task name here (overrides FreeRTOS's weak hook, then aborts exactly as it does).
+IRAM_ATTR void vApplicationStackOverflowHook(TaskHandle_t task, char *name)
+{
+    (void)task;
+    static const char a[] = "***ERROR*** A stack overflow in task ";
+    static const char b[] = " has been detected.\n";
+    char msg[sizeof a + configMAX_TASK_NAME_LEN + sizeof b];
+    size_t n = 0;
+    for (size_t i = 0; a[i]; i++) msg[n++] = a[i];
+    for (size_t i = 0; name && name[i] && i < configMAX_TASK_NAME_LEN; i++) msg[n++] = name[i];
+    for (size_t i = 0; b[i]; i++) msg[n++] = b[i];
+    ns_lw_write(&s_lw, msg, (uint32_t)n);
+    msg[n - 1] = '\0';   // esp_system_abort prints its own newline
+    esp_system_abort(msg);
+}
+
+void __wrap_panic_print_char(const char c)
+{
+    __real_panic_print_char(c);
+    ns_lw_write(&s_lw, &c, 1);
+}
+
+void __wrap_panic_print_str(const char *str)
+{
+    __real_panic_print_str(str);   // calls the real panic_print_char (same file): no double copy
+    size_t n = 0;
+    while (str[n]) n++;
+    ns_lw_write(&s_lw, str, (uint32_t)n);
+}
+
+void __wrap_panic_print_hex(int h)
+{
+    __real_panic_print_hex(h);
+    char b[8];
+    for (int i = 0; i < 8; i++) {
+        int c = (int)(((unsigned)h >> (28 - 4 * i)) & 0xf);
+        b[i] = (char)(c < 10 ? '0' + c : 'a' + c - 10);
+    }
+    ns_lw_write(&s_lw, b, sizeof b);
+}
+
+void __wrap_panic_print_dec(int d)
+{
+    __real_panic_print_dec(d);
+    char b[2] = { d / 10 ? (char)('0' + d / 10 % 10) : ' ', (char)('0' + d % 10) };
+    ns_lw_write(&s_lw, b, sizeof b);
+}
+#endif
+
 // Copy one formatted line into the ring (and the last-words recorder), and wake the sender task for
 // an error line or when the ring has just reached half full.
 static void ns_put_line(char *line, int n)
